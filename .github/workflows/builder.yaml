@@ -37,17 +37,23 @@ jobs:
       - name: Filter changed apps
         id: filter
         env:
-          APPS: ${{ steps.apps.outputs.addons }}
+          APPS_JSON: ${{ steps.apps.outputs.addons_list }}
           CHANGED_FILES: ${{ steps.changed_files.outputs.all_changed_files }}
         run: |
+          apps=()
+          while IFS= read -r app; do
+            apps+=("${app}")
+          done < <(jq -r '.[]' <<< "${APPS_JSON:-[]}")
+
           changed_apps=()
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            changed_apps=(${APPS})
+          # Manual runs and empty trigger commits should rebuild all apps.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || -z "${CHANGED_FILES}" ]]; then
+            changed_apps=("${apps[@]}")
           elif [[ "${CHANGED_FILES}" =~ \.github/workflows/(builder|build-app)\.yaml ]]; then
-            changed_apps=(${APPS})
+            changed_apps=("${apps[@]}")
           else
-            for app in ${APPS}; do
+            for app in "${apps[@]}"; do
               for file in ${MONITORED_FILES}; do
                 if [[ "${CHANGED_FILES}" =~ ${app}/${file} ]]; then
                   changed_apps+=("${app}")
