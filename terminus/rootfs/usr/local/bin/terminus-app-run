@@ -9,6 +9,8 @@ SECRETS_FILE="${DATA_DIR}/secrets.env"
 POSTGRES_DIR="${DATA_DIR}/postgres"
 VALKEY_DIR="${DATA_DIR}/valkey"
 UPLOADS_DIR="${DATA_DIR}/uploads"
+# Avoid Debian pg_wrapper symlinks, which can be blocked by confined runtimes.
+POSTGRES_BIN_DIR="/usr/lib/postgresql/18/bin"
 POSTGRES_PORT="5432"
 VALKEY_PORT="6379"
 TERMINUS_PORT="2300"
@@ -196,7 +198,7 @@ initialize_postgres() {
   fi
 
   log "Initializing PostgreSQL data directory."
-  gosu postgres /usr/lib/postgresql/18/bin/initdb \
+  gosu postgres "${POSTGRES_BIN_DIR}/initdb" \
     --encoding=UTF8 \
     --locale=C.UTF-8 \
     --username=postgres \
@@ -215,7 +217,7 @@ EOF
 
 start_postgres() {
   log "Starting PostgreSQL."
-  gosu postgres /usr/lib/postgresql/18/bin/postgres \
+  gosu postgres "${POSTGRES_BIN_DIR}/postgres" \
     -D "${POSTGRES_DIR}" \
     -c "listen_addresses=127.0.0.1" \
     -c "port=${POSTGRES_PORT}" \
@@ -224,7 +226,7 @@ start_postgres() {
   POSTGRES_PID="$!"
 
   for _ in {1..60}; do
-    if gosu postgres pg_isready -q -h 127.0.0.1 -p "${POSTGRES_PORT}"; then
+    if gosu postgres "${POSTGRES_BIN_DIR}/pg_isready" -q -h 127.0.0.1 -p "${POSTGRES_PORT}"; then
       return
     fi
     sleep 1
@@ -236,7 +238,7 @@ start_postgres() {
 
 ensure_database() {
   log "Ensuring Terminus database and role exist."
-  gosu postgres psql --no-psqlrc --dbname postgres --set ON_ERROR_STOP=1 <<SQL
+  gosu postgres "${POSTGRES_BIN_DIR}/psql" --no-psqlrc --dbname postgres --set ON_ERROR_STOP=1 <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'terminus') THEN

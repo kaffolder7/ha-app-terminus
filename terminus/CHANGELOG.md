@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Use PostgreSQL's versioned binaries directly for readiness checks and database setup so the app does not rely on Debian `pg_wrapper` symlinks under confined Home Assistant startup.
+
 ## 0.1.2
 
 - Allow service users to traverse `/data` so PostgreSQL, Valkey, and Terminus can reach their owned persistent directories without exposing root directory listings.
