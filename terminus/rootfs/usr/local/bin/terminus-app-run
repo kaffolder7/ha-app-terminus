@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+DATA_DIR="/data"
+OPTIONS_FILE="${DATA_DIR}/options.json"
+SECRETS_FILE="${DATA_DIR}/secrets.env"
+POSTGRES_DIR="${DATA_DIR}/postgres"
+VALKEY_DIR="${DATA_DIR}/valkey"
+UPLOADS_DIR="${DATA_DIR}/uploads"
+POSTGRES_PORT="5432"
+VALKEY_PORT="6379"
+TERMINUS_PORT="2300"
+DEFAULT_API_URI="http://homeassistant.local:2300"
+DEFAULT_ALLOWED_SUBNETS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1,::1"
+
+POSTGRES_PID=""
+VALKEY_PID=""
+WEB_PID=""
+WORKER_PID=""
+
+log() {
+  printf '[terminus-app] %s\n' "$*"
+}
+
+random_hex() {
+  ruby -rsecurerandom -e 'print SecureRandom.hex(64)'
+}
+
+option_value() {
+  local key="$1"
+  local default_value="${2:-}"
+
+  if [[ -f "${OPTIONS_FILE}" ]] && jq -e --arg key "${key}" 'has($key) and .[$key] != null' "${OPTIONS_FILE}" >/dev/null; then
+    jq -er --arg key "${key}" '.[$key]' "${OPTIONS_FILE}"
+  else
+    printf '%s' "${default_value}"
+  fi
+}
+
+load_options() {
+  API_URI="$(option_value "api_uri" "${DEFAULT_API_URI}")"
+  RACK_ATTACK_ALLOWED_SUBNETS="$(option_value "rack_attack_allowed_subnets" "${DEFAULT_ALLOWED_SUBNETS}")"
+  CERTIFICATE_URLS="$(option_value "certificate_urls" "")"
+
+  if [[ -z "${API_URI}" ]]; then
+    API_URI="${DEFAULT_API_URI}"
+  fi
+
+  case "${API_URI}" in
+    http://*|https://*) ;;
+    *)
+      log "ERROR: api_uri must start with http:// or https://. Got: ${API_URI}"
+      exit 1
+      ;;
+  esac
+}
+
+ensure_secrets() {
+  mkdir -p "${DATA_DIR}"
+  chmod 0750 "${DATA_DIR}"
+
+  if [[ ! -f "${SECRETS_FILE}" ]]; then
+    log "Generating persistent application and service secrets."
+    umask 077
+    {
+      printf 'APP_SECRET=%s\n' "$(random_hex)"
+      printf 'DATABASE_PASSWORD=%s\n' "$(random_hex)"
+      printf 'KEYVALUE_PASSWORD=%s\n' "$(random_hex)"
+    } > "${SECRETS_FILE}"
+  fi
+
+  # shellcheck disable=SC1090
+  source "${SECRETS_FILE}"
+
+  : "${APP_SECRET:?Missing APP_SECRET in ${SECRETS_FILE}}"
+  : "${DATABASE_PASSWORD:?Missing DATABASE_PASSWORD in ${SECRETS_FILE}}"
+  : "${KEYVALUE_PASSWORD:?Missing KEYVALUE_PASSWORD in ${SECRETS_FILE}}"
+}
+
+prepare_filesystem() {
+  mkdir -p \
+    "${POSTGRES_DIR}" \
+    "${VALKEY_DIR}" \
+    "${UPLOADS_DIR}" \
+    /run/postgresql \
+    /run/valkey \
+    /app/log \
+    /app/tmp \
+    /app/tmp/mini_magick \
+    /app/public/assets \
+    /app/public/fonts
+
+  if [[ -e /app/public/uploads || -L /app/public/uploads ]]; then
+    rm -rf /app/public/uploads
+  fi
+  ln -s "${UPLOADS_DIR}" /app/public/uploads
+
+  chown -R app:app "${UPLOADS_DIR}" /app/log /app/tmp /app/public/assets /app/public/fonts
+  chown -R postgres:postgres "${POSTGRES_DIR}" /run/postgresql
+
+  if id -u valkey >/dev/null 2>&1; then
+    VALKEY_USER="valkey"
+  else
+    VALKEY_USER="redis"
+  fi
+  chown -R "${VALKEY_USER}:${VALKEY_USER}" "${VALKEY_DIR}" /run/valkey
+}
+
+install_custom_certificates() {
+  if [[ -z "${CERTIFICATE_URLS}" ]]; then
+    log "No custom CA certificate URLs configured."
+    return
+  fi
+
+  log "Installing custom CA certificates."
+  export CERTIFICATE_URLS
+  /app/scripts/docker/install-certificates
+}
+
+initialize_postgres() {
+  if [[ -s "${POSTGRES_DIR}/PG_VERSION" ]]; then
+    return
+  fi
+
+  log "Initializing PostgreSQL data directory."
+  gosu postgres /usr/lib/postgresql/18/bin/initdb \
+    --encoding=UTF8 \
+    --locale=C.UTF-8 \
+    --username=postgres \
+    --pgdata="${POSTGRES_DIR}"
+}
+
+configure_postgres_auth() {
+  cat > "${POSTGRES_DIR}/pg_hba.conf" <<'EOF'
+local all postgres peer
+local all all peer
+host all all 127.0.0.1/32 scram-sha-256
+host all all ::1/128 scram-sha-256
+EOF
+  chown postgres:postgres "${POSTGRES_DIR}/pg_hba.conf"
+}
+
+start_postgres() {
+  log "Starting PostgreSQL."
+  gosu postgres /usr/lib/postgresql/18/bin/postgres \
+    -D "${POSTGRES_DIR}" \
+    -c "listen_addresses=127.0.0.1" \
+    -c "port=${POSTGRES_PORT}" \
+    -c "unix_socket_directories=/run/postgresql" \
+    -c "password_encryption=scram-sha-256" &
+  POSTGRES_PID="$!"
+
+  for _ in {1..60}; do
+    if gosu postgres pg_isready -q -h 127.0.0.1 -p "${POSTGRES_PORT}"; then
+      return
+    fi
+    sleep 1
+  done
+
+  log "ERROR: PostgreSQL did not become ready."
+  exit 1
+}
+
+ensure_database() {
+  log "Ensuring Terminus database and role exist."
+  gosu postgres psql --no-psqlrc --dbname postgres --set ON_ERROR_STOP=1 <<SQL
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'terminus') THEN
+    CREATE ROLE terminus LOGIN PASSWORD '${DATABASE_PASSWORD}';
+  ELSE
+    ALTER ROLE terminus WITH LOGIN PASSWORD '${DATABASE_PASSWORD}';
+  END IF;
+END
+\$\$;
+SELECT 'CREATE DATABASE terminus OWNER terminus'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'terminus')\gexec
+ALTER DATABASE terminus OWNER TO terminus;
+GRANT ALL PRIVILEGES ON DATABASE terminus TO terminus;
+SQL
+}
+
+start_valkey() {
+  local valkey_server
+  valkey_server="$(command -v valkey-server || command -v redis-server)"
+
+  cat > "${VALKEY_DIR}/valkey.conf" <<EOF
+bind 127.0.0.1
+port ${VALKEY_PORT}
+dir ${VALKEY_DIR}
+appendonly yes
+protected-mode yes
+requirepass ${KEYVALUE_PASSWORD}
+maxmemory 512mb
+maxmemory-policy noeviction
+save 900 1
+save 300 10
+save 60 10000
+EOF
+  chown "${VALKEY_USER}:${VALKEY_USER}" "${VALKEY_DIR}/valkey.conf"
+
+  log "Starting Valkey."
+  gosu "${VALKEY_USER}" "${valkey_server}" "${VALKEY_DIR}/valkey.conf" &
+  VALKEY_PID="$!"
+
+  for _ in {1..30}; do
+    if valkey_ping >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+
+  log "ERROR: Valkey did not become ready."
+  exit 1
+}
+
+valkey_ping() {
+  local valkey_client
+  valkey_client="$(command -v valkey-cli || command -v redis-cli)"
+  "${valkey_client}" \
+    -h 127.0.0.1 \
+    -p "${VALKEY_PORT}" \
+    -a "${KEYVALUE_PASSWORD}" \
+    --no-auth-warning \
+    ping | grep -q PONG
+}
+
+export_terminus_environment() {
+  export API_URI
+  export APP_SECRET
+  export RACK_ATTACK_ALLOWED_SUBNETS
+  export HANAMI_PORT="${TERMINUS_PORT}"
+  export DATABASE_URL="postgres://terminus:${DATABASE_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/terminus"
+  export KEYVALUE_URL="redis://:${KEYVALUE_PASSWORD}@127.0.0.1:${VALKEY_PORT}/0"
+}
+
+setup_terminus() {
+  cd /app
+
+  log "Compiling Terminus assets."
+  gosu app bundle exec hanami assets compile
+
+  log "Running Terminus database migrations."
+  gosu app bundle exec hanami db migrate
+}
+
+start_terminus() {
+  cd /app
+
+  log "Starting Terminus web process on port ${TERMINUS_PORT}."
+  gosu app bundle exec puma --config ./config/puma.rb &
+  WEB_PID="$!"
+
+  log "Starting Terminus Sidekiq worker."
+  gosu app bundle exec sidekiq -r ./config/sidekiq.rb &
+  WORKER_PID="$!"
+}
+
+shutdown() {
+  trap - INT TERM
+  log "Stopping services."
+
+  for pid in "${WORKER_PID}" "${WEB_PID}" "${VALKEY_PID}" "${POSTGRES_PID}"; do
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" >/dev/null 2>&1; then
+      kill -TERM "${pid}" >/dev/null 2>&1 || true
+    fi
+  done
+
+  wait "${WORKER_PID}" "${WEB_PID}" "${VALKEY_PID}" "${POSTGRES_PID}" >/dev/null 2>&1 || true
+}
+
+main() {
+  load_options
+  ensure_secrets
+  prepare_filesystem
+  install_custom_certificates
+  export_terminus_environment
+  initialize_postgres
+  configure_postgres_auth
+  start_postgres
+  ensure_database
+  start_valkey
+  setup_terminus
+  start_terminus
+
+  trap 'shutdown; exit 0' INT TERM
+
+  set +e
+  wait -n "${POSTGRES_PID}" "${VALKEY_PID}" "${WEB_PID}" "${WORKER_PID}"
+  exit_code="$?"
+  set -e
+
+  log "A managed process exited with code ${exit_code}; shutting down."
+  shutdown
+  exit "${exit_code}"
+}
+
+main "$@"
