@@ -24,4 +24,4 @@ schema:
   api_uri: url
   rack_attack_allowed_subnets: str?
   certificate_urls: str?
-image: ghcr.io/kaffolder7/{arch}-ha-app-terminus
+image: ghcr.io/kaffolder7/ha-app-terminus
