@@ -50,4 +50,4 @@ Only `2300/tcp` is exposed. PostgreSQL and Valkey listen only inside the app con
 
 ## Updating
 
-This app pins Terminus to `0.60.0` for reproducible builds. Future app releases should update the pinned upstream image tag, then smoke-test startup, migrations, `/up`, Web UI, and device API behavior against existing `/data`.
+This app pins Terminus to `0.60.0` by image digest for reproducible builds. Future app releases should update the pinned upstream image tag and digest together, then smoke-test startup, migrations, `/up`, Web UI, and device API behavior against existing `/data`.

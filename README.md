@@ -21,7 +21,7 @@ Or add it directly:
 [![Open your Home Assistant instance and show the app repository dialog pre-filled.][my-ha-badge]][my-ha-link]
 
 4. Refresh the App Store so the new repository is loaded.
-5. Find **Tronbyt Server** and click **Install**.
+5. Find **TRMNL Terminus** and click **Install**.
 6. Start the app.
 
 ---

@@ -87,6 +87,7 @@ jobs:
           arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
           context: "./${{ inputs.app }}"
+          cosign: "true"
           image: ${{ matrix.image }}
           image-tags: |
             ${{ needs.prepare.outputs.version }}
@@ -113,6 +114,7 @@ jobs:
         with:
           architectures: ${{ needs.prepare.outputs.architectures }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          cosign: "true"
           image-name: ${{ needs.prepare.outputs.image_name }}
           image-tags: |
             ${{ needs.prepare.outputs.version }}

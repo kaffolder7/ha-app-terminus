@@ -1,7 +1,7 @@
 name: Builder
 
 env:
-  MONITORED_FILES: "config.json config.yaml config.yml Dockerfile rootfs translations"
+  MONITORED_FILES: "apparmor.txt config.json config.yaml config.yml Dockerfile rootfs translations"
 
 on:
   pull_request:

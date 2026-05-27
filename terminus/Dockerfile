@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BUILD_FROM=ghcr.io/usetrmnl/terminus:0.60.0
+ARG BUILD_FROM=ghcr.io/usetrmnl/terminus:0.60.0@sha256:48f78aec134e67c121c703b79cc6d15f722fa3a00d1438934817a61d4daab5c1
 FROM ${BUILD_FROM}
 
 ARG BUILD_ARCH=local
-ARG BUILD_VERSION=0.1.0
+ARG BUILD_VERSION=0.1.1
 
 USER root
 

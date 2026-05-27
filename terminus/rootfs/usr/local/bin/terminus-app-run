@@ -19,6 +19,8 @@ POSTGRES_PID=""
 VALKEY_PID=""
 WEB_PID=""
 WORKER_PID=""
+VALKEY_USER=""
+SHUTDOWN_STARTED="false"
 
 log() {
   printf '[terminus-app] %s\n' "$*"
@@ -26,6 +28,66 @@ log() {
 
 random_hex() {
   ruby -rsecurerandom -e 'print SecureRandom.hex(64)'
+}
+
+validate_allowed_subnets() {
+  local normalized
+
+  if [[ -z "${RACK_ATTACK_ALLOWED_SUBNETS}" ]]; then
+    return
+  fi
+
+  if ! normalized="$(
+    RACK_ATTACK_ALLOWED_SUBNETS="${RACK_ATTACK_ALLOWED_SUBNETS}" ruby -ripaddr -e '
+      entries = ENV.fetch("RACK_ATTACK_ALLOWED_SUBNETS").split(",", -1).map(&:strip)
+      entries.each do |entry|
+        abort("empty allowed subnet entry") if entry.empty?
+        begin
+          IPAddr.new(entry)
+        rescue ArgumentError
+          abort("invalid allowed subnet: #{entry}")
+        end
+      end
+      print entries.join(",")
+    '
+  )"; then
+    log "ERROR: rack_attack_allowed_subnets must be a comma-separated list of IP addresses or CIDR subnets."
+    exit 1
+  fi
+
+  RACK_ATTACK_ALLOWED_SUBNETS="${normalized}"
+}
+
+validate_certificate_urls() {
+  local normalized
+
+  if [[ -z "${CERTIFICATE_URLS}" ]]; then
+    return
+  fi
+
+  if ! normalized="$(
+    CERTIFICATE_URLS="${CERTIFICATE_URLS}" ruby -ruri -e '
+      entries = ENV.fetch("CERTIFICATE_URLS").split(",", -1).map(&:strip)
+      entries.each do |entry|
+        abort("empty certificate URL entry") if entry.empty?
+        begin
+          uri = URI.parse(entry)
+        rescue URI::InvalidURIError
+          abort("invalid certificate URL: #{entry}")
+        end
+
+        unless %w[http https].include?(uri.scheme) && uri.host
+          abort("certificate URL must be http(s) with a host: #{entry}")
+        end
+      end
+      print entries.join(",")
+    '
+  )"; then
+    log "ERROR: certificate_urls must be a comma-separated list of http(s) URLs."
+    exit 1
+  fi
+
+  CERTIFICATE_URLS="${normalized}"
 }
 
 option_value() {
@@ -55,6 +117,9 @@ load_options() {
       exit 1
       ;;
   esac
+
+  validate_allowed_subnets
+  validate_certificate_urls
 }
 
 ensure_secrets() {
@@ -63,13 +128,17 @@ ensure_secrets() {
 
   if [[ ! -f "${SECRETS_FILE}" ]]; then
     log "Generating persistent application and service secrets."
-    umask 077
-    {
-      printf 'APP_SECRET=%s\n' "$(random_hex)"
-      printf 'DATABASE_PASSWORD=%s\n' "$(random_hex)"
-      printf 'KEYVALUE_PASSWORD=%s\n' "$(random_hex)"
-    } > "${SECRETS_FILE}"
+    (
+      umask 077
+      {
+        printf 'APP_SECRET=%s\n' "$(random_hex)"
+        printf 'DATABASE_PASSWORD=%s\n' "$(random_hex)"
+        printf 'KEYVALUE_PASSWORD=%s\n' "$(random_hex)"
+      } > "${SECRETS_FILE}"
+    )
   fi
+
+  chmod 0600 "${SECRETS_FILE}"
 
   # shellcheck disable=SC1090
   source "${SECRETS_FILE}"
@@ -219,11 +288,9 @@ EOF
 valkey_ping() {
   local valkey_client
   valkey_client="$(command -v valkey-cli || command -v redis-cli)"
-  "${valkey_client}" \
+  REDISCLI_AUTH="${KEYVALUE_PASSWORD}" "${valkey_client}" \
     -h 127.0.0.1 \
     -p "${VALKEY_PORT}" \
-    -a "${KEYVALUE_PASSWORD}" \
-    --no-auth-warning \
     ping | grep -q PONG
 }
 
@@ -260,6 +327,11 @@ start_terminus() {
 
 shutdown() {
   trap - INT TERM
+  if [[ "${SHUTDOWN_STARTED}" == "true" ]]; then
+    return
+  fi
+  SHUTDOWN_STARTED="true"
+
   log "Stopping services."
 
   for pid in "${WORKER_PID}" "${WEB_PID}" "${VALKEY_PID}" "${POSTGRES_PID}"; do
@@ -272,6 +344,8 @@ shutdown() {
 }
 
 main() {
+  trap 'shutdown; exit 0' INT TERM
+
   load_options
   ensure_secrets
   prepare_filesystem
@@ -284,8 +358,6 @@ main() {
   start_valkey
   setup_terminus
   start_terminus
-
-  trap 'shutdown; exit 0' INT TERM
 
   set +e
   wait -n "${POSTGRES_PID}" "${VALKEY_PID}" "${WEB_PID}" "${WORKER_PID}"
