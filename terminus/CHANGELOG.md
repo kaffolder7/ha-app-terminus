@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Allow service users to traverse `/data` so PostgreSQL, Valkey, and Terminus can reach their owned persistent directories without exposing root directory listings.
+
 ## 0.1.1
 
 - Add a custom AppArmor profile and explicit protected app defaults.

@@ -1,5 +1,5 @@
 name: TRMNL Terminus
-version: "0.1.1"
+version: "0.1.2"
 slug: terminus
 description: Self-hosted Terminus server for TRMNL BYOS devices
 url: https://github.com/kaffolder7/ha-app-terminus
