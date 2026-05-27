@@ -124,7 +124,9 @@ load_options() {
 
 ensure_secrets() {
   mkdir -p "${DATA_DIR}"
-  chmod 0750 "${DATA_DIR}"
+  # Service users need to traverse /data to reach their own chowned
+  # subdirectories, but should not be able to list the persistent root.
+  chmod 0711 "${DATA_DIR}"
 
   if [[ ! -f "${SECRETS_FILE}" ]]; then
     log "Generating persistent application and service secrets."
