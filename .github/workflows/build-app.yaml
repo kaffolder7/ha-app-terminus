@@ -35,17 +35,23 @@ jobs:
 
       - name: Normalize app information
         id: normalize
+        env:
+          IMAGE_JSON: ${{ steps.info.outputs.image }}
+          VERSION_JSON: ${{ steps.info.outputs.version }}
+          NAME_JSON: ${{ steps.info.outputs.name }}
+          DESCRIPTION_JSON: ${{ steps.info.outputs.description }}
+          URL_JSON: ${{ steps.info.outputs.url }}
         run: |
-          image="${{ steps.info.outputs.image }}"
+          image="$(jq -r '.' <<< "${IMAGE_JSON}")"
           echo "image_name=${image##*/}" >> "$GITHUB_OUTPUT"
           echo "registry_prefix=${image%/*}" >> "$GITHUB_OUTPUT"
-          version="${{ steps.info.outputs.version }}"
+          version="$(jq -r '.' <<< "${VERSION_JSON}")"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          name="${{ steps.info.outputs.name }}"
+          name="$(jq -r '.' <<< "${NAME_JSON}")"
           echo "name=${name}" >> "$GITHUB_OUTPUT"
-          description="${{ steps.info.outputs.description }}"
+          description="$(jq -r '.' <<< "${DESCRIPTION_JSON}")"
           echo "description=${description}" >> "$GITHUB_OUTPUT"
-          url="${{ steps.info.outputs.url }}"
+          url="$(jq -r '.' <<< "${URL_JSON}")"
           if [[ -n "$url" && "$url" != "null" ]]; then
             echo "url=${url}" >> "$GITHUB_OUTPUT"
           fi
