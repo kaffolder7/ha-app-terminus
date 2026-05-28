@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Skip Hanami's database structure dump during startup migrations so the app does not try to write generated schema files into the packaged `/app` source tree.
+
 ## 0.1.4
 
 - Prepend PostgreSQL's versioned binary directory to `PATH` so Hanami's migration structure dump runs the real `pg_dump` binary instead of Debian's `pg_wrapper` symlink under Home Assistant confinement.

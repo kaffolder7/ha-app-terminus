@@ -315,7 +315,8 @@ setup_terminus() {
   gosu app bundle exec hanami assets compile
 
   log "Running Terminus database migrations."
-  gosu app bundle exec hanami db migrate
+  # The generated structure file belongs in the source tree, not runtime state.
+  gosu app bundle exec hanami db migrate --no-dump
 }
 
 start_terminus() {
