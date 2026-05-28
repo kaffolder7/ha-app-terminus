@@ -1,5 +1,5 @@
 name: TRMNL Terminus
-version: "0.1.5"
+version: "0.1.6"
 slug: terminus
 description: Self-hosted Terminus server for TRMNL BYOS devices
 url: https://github.com/kaffolder7/ha-app-terminus
@@ -20,10 +20,12 @@ backup: cold
 tmpfs: true
 options:
   api_uri: http://homeassistant.local:2300
+  log_level: warning
   rack_attack_allowed_subnets: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1,::1
   certificate_urls: ""
 schema:
   api_uri: url
+  log_level: list(debug|info|warning|error|fatal)
   rack_attack_allowed_subnets: str?
   certificate_urls: str?
 image: ghcr.io/kaffolder7/ha-app-terminus

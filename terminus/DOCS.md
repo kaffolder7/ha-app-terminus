@@ -7,6 +7,7 @@ This app runs [Terminus](https://github.com/usetrmnl/terminus), the self-hosted 
 | Option | Description |
 | --- | --- |
 | `api_uri` | Public URL that TRMNL devices use for this Terminus instance. For LAN-only use, set this to a reachable local URL such as `http://homeassistant.local:2300` or `http://192.168.1.10:2300`. For Cloudflare Tunnel use, set this to the public HTTPS hostname. |
+| `log_level` | Minimum Terminus log severity to write. Defaults to `warning`; use `info` or `debug` when you need more detailed troubleshooting output. |
 | `rack_attack_allowed_subnets` | Comma-separated subnets or IP addresses allowed through Terminus rate-limit protection. The default private network list works for typical LAN and local tunnel-origin traffic. |
 | `certificate_urls` | Optional comma-separated custom CA certificate URLs. Use this only when Terminus needs to call HTTPS services signed by a private CA. |
 

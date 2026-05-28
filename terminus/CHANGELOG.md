@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Add a `log_level` option that defaults to `warning` and controls Terminus structured log verbosity.
+
 ## 0.1.5
 
 - Skip Hanami's database structure dump during startup migrations so the app does not try to write generated schema files into the packaged `/app` source tree.

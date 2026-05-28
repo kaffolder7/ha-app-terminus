@@ -2,6 +2,9 @@ configuration:
   api_uri:
     name: API URI
     description: Public URL TRMNL devices use to reach this Terminus server.
+  log_level:
+    name: Log Level
+    description: Minimum Terminus log severity written to the app log.
   rack_attack_allowed_subnets:
     name: Allowed Subnets
     description: Comma-separated IP addresses or subnets allowed through Terminus rate-limit protection.

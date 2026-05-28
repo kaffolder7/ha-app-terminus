@@ -16,6 +16,7 @@ VALKEY_PORT="6379"
 TERMINUS_PORT="2300"
 DEFAULT_API_URI="http://homeassistant.local:2300"
 DEFAULT_ALLOWED_SUBNETS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1,::1"
+DEFAULT_LOG_LEVEL="warning"
 
 POSTGRES_PID=""
 VALKEY_PID=""
@@ -92,6 +93,25 @@ validate_certificate_urls() {
   CERTIFICATE_URLS="${normalized}"
 }
 
+normalize_log_level() {
+  local normalized
+
+  normalized="$(printf '%s' "${TERMINUS_LOG_LEVEL}" | tr '[:upper:]' '[:lower:]')"
+
+  case "${normalized}" in
+    debug|info|warn|error|fatal)
+      LOG_LEVEL="${normalized}"
+      ;;
+    warning)
+      LOG_LEVEL="warn"
+      ;;
+    *)
+      log "ERROR: log_level must be one of debug, info, warning, error, or fatal."
+      exit 1
+      ;;
+  esac
+}
+
 option_value() {
   local key="$1"
   local default_value="${2:-}"
@@ -105,6 +125,7 @@ option_value() {
 
 load_options() {
   API_URI="$(option_value "api_uri" "${DEFAULT_API_URI}")"
+  TERMINUS_LOG_LEVEL="$(option_value "log_level" "${DEFAULT_LOG_LEVEL}")"
   RACK_ATTACK_ALLOWED_SUBNETS="$(option_value "rack_attack_allowed_subnets" "${DEFAULT_ALLOWED_SUBNETS}")"
   CERTIFICATE_URLS="$(option_value "certificate_urls" "")"
 
@@ -122,6 +143,7 @@ load_options() {
 
   validate_allowed_subnets
   validate_certificate_urls
+  normalize_log_level
 }
 
 ensure_secrets() {
@@ -302,6 +324,7 @@ export_terminus_environment() {
   export PATH="${POSTGRES_BIN_DIR}:${PATH}"
   export API_URI
   export APP_SECRET
+  export LOG_LEVEL
   export RACK_ATTACK_ALLOWED_SUBNETS
   export HANAMI_PORT="${TERMINUS_PORT}"
   export DATABASE_URL="postgres://terminus:${DATABASE_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/terminus"
