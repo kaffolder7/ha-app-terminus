@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Prepend PostgreSQL's versioned binary directory to `PATH` so Hanami's migration structure dump runs the real `pg_dump` binary instead of Debian's `pg_wrapper` symlink under Home Assistant confinement.
+
 ## 0.1.3
 
 - Use PostgreSQL's versioned binaries directly for readiness checks and database setup so the app does not rely on Debian `pg_wrapper` symlinks under confined Home Assistant startup.

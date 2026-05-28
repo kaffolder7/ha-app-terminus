@@ -299,6 +299,7 @@ valkey_ping() {
 }
 
 export_terminus_environment() {
+  export PATH="${POSTGRES_BIN_DIR}:${PATH}"
   export API_URI
   export APP_SECRET
   export RACK_ATTACK_ALLOWED_SUBNETS
